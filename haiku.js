@@ -97,6 +97,149 @@ function processText(file){
 	return fs.readFileSync(file).toString().replace(/[^a-zA-Z!' ]+/g, "").toUpperCase();
 }
 
+function generateFrequencyTableNew(text){
+	freqTable={};
+	var arr=text.split("\n\n");
+	var lastWords=[];
+	for(var i=0;i<(arr.length-1);i++){
+		//COLLECT LAST WORD
+		var haiku=arr[i].split(" ");
+		var lastWord=haiku[haiku.length-1];
+		var index=haiku.length-1;
+		//console.log(index);
+		var changed=false;
+		while(lastWord==""&&index>0){
+			lastWord=haiku[index];
+			index--;
+			changed=true;
+		}
+		lastWords.push(lastWord);
+		//GENERATE BACKWARDS FREQUENCY CHAIN
+		var startIndex=index;
+		if(changed==true){
+			startIndex++;
+		}
+		var chainBack=[];
+		for(var j=startIndex;j>=0;j--){
+			var word=haiku[j];
+			if(word!=""){
+				var words=word.split('\n');
+				for(var k=words.length-1;k>=0;k--){
+					if(words[k]!=""){
+						chainBack.push(words[k]);
+					}
+				}
+			}
+		}	
+		for(var j=0;j<chainBack.length;j++){
+			if(freqTable[chainBack[j]]===undefined){
+	   			freqTable[chainBack[j]]={};
+	   		}
+	   		if(freqTable[chainBack[j]][chainBack[j+1]]===undefined){
+	   			freqTable[chainBack[j]][chainBack[j+1]]=1;
+	  		}
+	  		else{
+	   			freqTable[chainBack[j]][chainBack[j+1]]+=1;		
+	  		}
+	  	}
+	}
+    //console.log(freqTable);
+    var toReturn=[lastWords,freqTable];
+	return toReturn;
+}
+
+function processTextNew(file){
+	return fs.readFileSync(file).toString().replace(/[^a-zA-Z!' \n]+/g,"").toUpperCase();
+}
+
+function getNextLineNew(syllables,keys,freqTable,syllDict,wordsUsed,lastWord,seed){
+	var calls=0;
+	while(true){
+		if(calls>50){ //CHEATING
+			return getNextLineNew(syllables,keys,freqTable,syllDict,wordsUsed,keys[getRandomIntInclusive(0,keys.length-1)],null);
+		}
+		calls++;
+		var current=lastWord;
+		if(seed!=null){
+			current=selectNextWord(seed,freqTable,wordsUsed,keys);
+		}
+		if((current==undefined)||(syllDict[current]==undefined)){
+			current=keys[getRandomIntInclusive(0,keys.length-1)];
+		}
+		var syllablesUsed=syllDict[current];
+		var syllablesLeft=syllables-syllablesUsed;
+		var str=current;
+		if(syllablesLeft==0){
+			return str;
+		}
+		while(syllablesLeft<0){
+			current=keys[getRandomIntInclusive(0,keys.length-1)];
+			syllablesUsed=syllDict[current];
+			syllablesLeft=syllables-syllablesUsed;
+		}
+		var attempts=0;
+		while(syllablesLeft>0){
+			var nextWord=selectNextWord(current,freqTable,wordsUsed,keys);
+			if(syllDict[nextWord]==undefined){ 
+				//console.log("hey1");
+				nextWord=keys[getRandomIntInclusive(0,keys.length-1)];
+			}
+			if(attempts>=3){
+				str="";
+				syllablesLeft=syllables;
+				nextWord=keys[getRandomIntInclusive(0,keys.length-1)];
+				attempts=0;
+			}
+			syllablesUsed=syllDict[nextWord];
+			//console.log(syllablesUsed);
+			//console.log(nextWord);
+			str=nextWord+" "+str;
+			syllablesLeft-=syllablesUsed;
+			current=nextWord;
+			attempts++;
+			if(syllablesLeft==0&&checkEnd(str)){
+				return str;
+			}
+			if(syllablesLeft<0){
+				str="";
+				syllablesLeft=syllables;
+				current=keys[getRandomIntInclusive(0,keys.length-1)];
+				attempts=0;
+			}
+			//console.log(current,syllablesLeft);
+		}
+		//console.log("exited");
+	}
+}
+
+function haikuMarkovNew(structure){
+	var syllDict=formatData2(cmudictFile);
+	var text=processTextNew('./basho.txt');
+	var info=generateFrequencyTableNew(text);
+	var lastWords=info[0];
+	var freqTable=info[1];
+	var keys=Object.keys(freqTable);
+	var wordsUsed={};
+	var str="";
+	var index=getRandomIntInclusive(0,lastWords.length-1);
+	var lastWord=lastWords[index];
+	var seed=null;
+	for(var i=structure.length-1;i>=0;i--){
+		var nextLine=getNextLineNew(structure[i],keys,freqTable,syllDict,wordsUsed,lastWord,seed);
+		var arr=nextLine.split(" ");
+		for(var j=0;j<arr.length;j++){
+			wordsUsed[arr[j]]=true;
+		}
+		str=nextLine+"\n"+str;
+		seed=nextLine.split(" ")[0];
+		if(seed==undefined){
+			seed=lastWords[getRandomIntInclusive(0,lastWords.length-1)];
+		}
+	}
+	console.log(str);
+	
+}
+
 function haikuMarkov(structure){
 	var syllDict=formatData2(cmudictFile);
 	var text=processText('./basho.txt');
@@ -147,7 +290,7 @@ function getNextLine(syllables,keys,freqTable,syllDict,wordsUsed){
 
 function checkEnd(str){
 	var arr=str.split(" ");
-	var forbidden=["THE","A","OF","ON","BY","FROM","FOR","AND","OR","YET","TO","MY","SHE","WITH","ITS","INTO","BUT"];
+	var forbidden=["THE","A","OF","ON","BY","FROM","FOR","AND","OR","YET","TO","MY","SHE","WITH","ITS","INTO","BUT","IS"];
 	for(var i=0;i<forbidden.length;i++){
 		if(arr[arr.length-2]==forbidden[i]){
 			//console.log("caught",str);
@@ -159,10 +302,9 @@ function checkEnd(str){
 
 function selectNextWord(current,freqTable,wordsUsed,keys){
 	if(freqTable[current]===undefined){
-		console.log(current);
+		console.log("DEBUG",current); //DO SOMETHING
 	} //DEBUGGING
 	var successors=Object.keys(freqTable[current]);
-
 	var probRanges=[];
 	var sum=0;
 	for(var i=0;i<successors.length;i++){
@@ -234,6 +376,7 @@ function createHaiku(structure){
 	console.log(poem);
 	console.log("[extra credit]\n");
     haikuMarkov(structure);
+    haikuMarkovNew(structure);
 }
 
 
